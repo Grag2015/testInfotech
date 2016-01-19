@@ -1,0 +1,221 @@
+## Анализ связи между количеством покупок на уровне, сложностью и оттоком.
+
+выполнил: *Григорий Михолап*  
+дата: *18/01/2016*
+
+```{r setoptions, echo=FALSE, warning=FALSE, message=FALSE}
+# глобальные настройки для chunks
+library(knitr)
+opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r echo=FALSE, results='hide'}
+# пользовательская ф-я для вывода параметров регрессионной модели
+printlm <- function(model){
+  tempsum <- summary(model)
+  cat("Residual standard error:", format(signif(tempsum$sigma, 
+                                                4)), "on", tempsum$df[2L], "degrees of freedom")
+  cat("\n")
+  cat("Multiple R-squared:  ", round(tempsum$r.squared, digits=4),	"Adjusted R-squared:  ",
+      round(tempsum$adj.r.squared, digits=4))
+  cat("\n")
+  cat("F-statistic: ", round(tempsum$fstatistic[1],2), "on", round(tempsum$fstatistic[2],0), 
+      "and", round(tempsum$fstatistic[3],0), "DF,  p-value:",
+      format.pval(pf(tempsum$fstatistic[1L],tempsum$fstatistic[2L], 
+                     tempsum$fstatistic[3L], lower.tail = FALSE)))
+}
+
+# пользовательские функции для график попарных корреляций
+    panel.density <- function(x, ...) {
+        n.groups <-  1
+        adjust <-  1
+        groups = NULL
+        if (n.groups > 1) {
+            levs <- levels(groups)
+            for (i in 1:n.groups) {
+                xx <- x[levs[i] == groups]
+                dens.x <- try(density(xx, adjust = adjust, na.rm = TRUE), 
+                  silent = TRUE)
+                if (!inherits(dens.x, "try-error")) {
+                  lines(dens.x$x, min(x, na.rm = TRUE) + dens.x$y * 
+                    diff(range(x, na.rm = TRUE))/diff(range(dens.x$y, 
+                    na.rm = TRUE)), col = col[i])
+                }
+                else warning("cannot estimate density for group ", 
+                  levs[i], "\n", dens.x, "\n")
+                rug(xx, col = col[i])
+            }
+        }
+        else {
+            dens.x <- density(x, adjust = adjust, na.rm = TRUE)
+            lines(dens.x$x, min(x, na.rm = TRUE) + dens.x$y * 
+                diff(range(x, na.rm = TRUE))/diff(range(dens.x$y, 
+                na.rm = TRUE)))
+            rug(x)
+        }
+#         if (do.legend) 
+#             legendPlot(position = if (is.null(legend.pos)) 
+#                 "topright"
+#             else legend.pos)
+#         do.legend <<- FALSE
+    }
+
+# функция для расчет коэффициентов детерминации
+panel.cor <- function(x, y, digits=2, prefix="", cex.cor, ...)
+{
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(0, 1, 0, 1))
+    r <- cor(x[!is.na(x*y)], y[!is.na(x*y)])
+    txt <- format(c(r^2, 0.123456789), digits=digits)[1]
+    txt <- paste(prefix, txt, sep="")
+    if(missing(cex.cor)) cex.cor <- 0.8/strwidth(txt)
+    text(0.5, 0.5, txt, cex = cex.cor * max(abs(r), 0.25))
+}
+
+```
+
+**Задание:**
+
+Есть данные по уровням match-3 игры: сложность, отток пользователь, количество покупок. Проанализировать, как связаны между собой сложность уровней и отток на этих уровнях.
+Сложность определяется как количество попыток до победы на уровне, отток – процент людей, которые не перешли на следующий уровень относительно всех тех, кто начал первый уровень. Проверить, есть ли связь между количеством покупок на уровнях и этими показателями. Данные представлены в файле “Data.xls” на вкладке «Сложность уровней».
+
+
+**Выводы кратко:** 
+
+
+**Замечание** по поводу программного кода:
+Программный код, который используется в отчете, в т.ч. и некоторые операции (такие как загрузка и подготовка данных для анализа) не были включены в отчет, при необходимости все эти данные вы можете найти [по ссылке](https://github.com) 
+```{r echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# **Замечание** для воспроизводимости работы:
+# перед загрузкой вкладка "Сложность уровней" была сохранена в формате csv
+# в файле с именем "task1.csv"
+# (Выполнено в MS Excel 2010: Файл -> Сохранить как -> CSV (разделители - запятые))
+# и далее в текстовом редакторе разделители разрядов "," были заменены на "."
+```
+
+
+```{r  echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+
+# ЗАГРУЗКА И ПРЕДОБРАБОТКА
+
+#  setwd("d:/Grag/R/R-studio/testInfotech/")
+# читаем данные
+df <-  read.csv("task1.csv", sep = ";")
+
+# просмотр загруженного файла показал, что загрузились 2 пустых столбца №5 и 6, удалим их
+df <- df[,-c(5:6)]
+
+# переименуем столбцы
+names(df) <- c("level","slozn","ottok", "pokupki")
+
+# Отток пользователя при загрузке был преобразован в факторную переменную
+# удалим знак "%" и преобразуем столбец в числовой формат
+df$ottok <- as.numeric(gsub("%","",df$ottok))
+
+```
+
+```{r  echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# Подключаем нужные библиотеки
+library("dplyr")
+library("ggplot2")
+library("lattice") 
+library("xtable")
+library("car")
+library(lubridate)
+library(reshape2)
+```
+
+## 1. Предварительный анализ данных
+```{r}
+sapply(df, function(e) sum(is.na(e)))
+```
+Пропущенных значений нет
+
+## 3. Основные статистические показатели
+```{r}
+summary(df[,-1])
+sum(df$ottok)
+```
+Все параметры числовые, распределения несимметричные, 
+
+## Разведочный анализ
+```{r  fig.width=6,  fig.height=4}
+    pairs(df[], diag.panel=panel.density, upper.panel=panel.cor, lower.panel=panel.smooth)
+```
+Анализ данного графика показывает, что между покупками и сложностью существует достаточно сильная линейная связь (коэффициент корреляции 0,58), в то время, как другие пары значений практически не коррелируют, т.е. увеличение сложности практически не влияет на отток (!) и количество покупок тоже не связано с оттоком. Это выглядит несколько неожиданно.
+
+посмотрим как отток зависит от уровня игры
+```{r}
+ggplot(data=df, aes(x=level, y=ottok))+geom_point()+geom_smooth()
+```
+Мы видим, что отток после 25-го уровня очень близок к нулю. Среднее значение оттока на уровнях 25-100 равно `r mean(df[25:100,"ottok"])`%, это очень мало. Такие низкие значения оттока с увеличеним уровня игры мы имеем из-за методики расчета оттока - "отток – процент людей, которые не перешли на следующий уровень *относительно всех тех, кто начал первый уровень*". 
+Давайте посмотрим на *локальный* отток на каждом уровне, т.е. процент людей, которые не перешли на следующий уровень *относительно всех тех, кто начал данный уровень*" 
+
+# Дополнительные переменные
+Расчет локального оттока
+```{r}
+df$ottok2 <- df$ottok
+s <- df$ottok[1]
+df$ottok2[1] <- df$ottok[1]
+for (i in 2:100) {
+    df$ottok2[i] <- df$ottok[i]/(100-s)
+    s <- s + df$ottok[i]
+}
+```
+```{r}
+hist(df$ottok2)
+ggplot(data=df, aes(x=level, y=ottok2))+geom_point()+geom_smooth()
+```
+
+Расчет среднего числа покупок на уровне
+```{r}
+s <- 0
+for (i in 1:100) {
+    df$pokupkiAver[i] <- df$pokupki[i]/(100-s)
+    s <- s + df$ottok[i]
+}
+```
+
+
+```{r  fig.width=6,  fig.height=4}
+    pairs(df, diag.panel=panel.density, upper.panel=panel.cor, lower.panel=panel.smooth)
+```
+
+мы видим, что среднее число покупок на уровне достаточно сильно коррелирует с уровнем - это можно проанализировать подробнее и вывод будет такой - выгодно привлекать игроков на уровень выше 70-го, где каждый игрок приносит гораздо больше прибыли.
+
+```{r}
+ggplot(data = df, aes(x=level, y = pokupkiAver))+geom_point()
+```
+построим линейную модель, описывающую данную зависимость
+учитывая ступенчатый характер зависимости разобъем переменную `level` на 3 уровня [ 1, 35) [35, 68) [68,100] и сохраним в новой переменной `level3`. Также на диаграмме выше видны в правом верхнем углу подозрительно большие значения, с помощью теста Бонферони найдем выбросы и удалим их при построении модели (я выбросил четыре значения)
+
+```{r}
+library(Hmisc)
+df$level3 <- cut2(df$level, g=3)
+```
+```{r}
+fit <- lm(pokupkiAver~level*level3, data = df)
+tt <- outlierTest(fit) # ищем выбросы - 97,98,87
+fit <- lm(pokupkiAver~level*level3, data = df[-c(97,98,87),])
+```
+```{r echo=TRUE}
+tt <- outlierTest(fit) # ищем выбросы - 92
+fit <- lm(pokupkiAver~level*level3, data = df[-c(97,98,87,92),])
+summary(fit)
+```
+Мы получили достаточно точную модель `Adjusted R-squared = 0,79` связывающую уровни `level` и среднее количество покупок на уровне `pokupkiAver`. Аналитически эту зависимость можно записать формулой `pokupkiAver = -280 + 4.3*level` где `level>=68`.
+Т.о. начиная примерно с 68-го уровня, каждый игрок переходя на следующий уровень делает на 4 покупки больше, чем сделал на предыдущем уровне. Вообще данная зависимость интересна таким резким ростом покупок в конце игры, возможно это объясняется тем, что в конце игры остаются только самые вовлеченные игроки, которые твердо решили дойти до конца невзирая на затраты.
+
+А давайте посмотрим на отток пользователей
+
+**Результат:** 
+    
+    
+ ___________   
+
+```{r echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# knit2html('Task 3 Advert channels.Rmd', encoding="UTF-8")
+# browseURL('Task 3 Advert channels.Rmd')
+
+```
+
