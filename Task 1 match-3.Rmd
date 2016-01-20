@@ -371,4 +371,19 @@ F(level)  | 0.44  | 0.25  | 0.22
 # browseURL('Task 3 Advert channels.Rmd')
 
 ```
+```{r}
+fit <- lm(slozn~ottok*pokupki*level3, data=df)
+fit <- lm(ottok~slozn*pokupki, data=df)
+fit <- lm(pokupki~slozn*ottok, data=df)
+fit <- lm(slozn~pokupki*ottok, data=df)
+fit <- lm(slozn~ottok2*pokupki, data=df)
+fit <- lm(slozn~pokupki + ottok:pokupki, data=df)
+fit <- lm(slozn~ottok*pokupki*level3, data=df[df$level3!="[ 1, 35)",])
+fit <- lm(slozn~ottok:pokupki + pokupki, data=df[df$level3!="[ 1, 35)",])
+summary(fit)
+```
+
+```{r}
+ggplot(data=df, aes(x=slozn, y=pokupki, col=cut2(df$ottok, g=3))) + geom_point() 
+```
 
